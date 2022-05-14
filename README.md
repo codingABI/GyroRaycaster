@@ -1,5 +1,8 @@
 # GyroRaycaster
-Raycaster where viewer can be moved and rotated by gyroscope sensor (Arduino Uno/Nano with gyroscope sensor MPU6050 and SSD1306 OLED 128x64 pixel display).
+Gamelike Raycaster where viewer can be moved and rotated by gyro sensor. When the viewer has reached the door to the outer world the games ends
+
+## Hardware
+Arduino Uno/Nano with gyro sensor MPU6050 and SSD1306 OLED 128x64 pixel display
 
 ![photo](/assets/images/GyroRaycaster.jpg) 
 
