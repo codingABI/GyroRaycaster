@@ -9,4 +9,4 @@ Running on breadboard was not very stable for me over time (occassionally i2c-bu
 
 ![schema](/assets/images/Schema.svg) 
 
-Video https://youtu.be/JrI3bZ-JFNQ
+Video https://youtu.be/0g54CI1bC_A
