@@ -10,7 +10,10 @@
  * 
  * History:
  * 14.05.2022, Initial version
- * 15.05.2022, Display elapsed time at finish, fix rare glitches when angle close to 90/270 or 0/180 degrees, change precalculated sins from values [0;64] to [0;255] to more precise
+ * 15.05.2022, Display elapsed time at finish
+ * 15.05.2022, fix rare glitches when angle close to 90/270 or 0/180 degrees
+ * 15.05.2022, change precalculated sins from values [0;64] to [0;128] to more precise
+ * 15.05.2022, Change inital text from "Init gyro..." to "Find the exit..."
  */
  
 #include <Adafruit_GFX.h>
@@ -71,9 +74,9 @@ const PROGMEM byte g_map[]= {
  0b11111111,
 };
 
-// precalculated sin to improve performance (degree 0-90 with values [0;255])
-byte g_sin255[91] {
-  0,4,9,13,18,22,27,31,35,40,44,49,53,57,62,66,70,75,79,83,87,91,96,100,104,108,112,116,120,124,128,131,135,139,143,146,150,153,157,160,164,167,171,174,177,180,183,186,190,192,195,198,201,204,206,209,211,214,216,219,221,223,225,227,229,231,233,235,236,238,240,241,243,244,245,246,247,248,249,250,251,252,253,253,254,254,254,255,255,255,255
+// precalculated sin to improve performance (degree 0-90 with values [0;128])
+byte g_sin128[91] {
+  0,2,4,7,9,11,13,16,18,20,22,24,27,29,31,33,35,37,40,42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,73,75,77,79,81,82,84,86,87,89,91,92,94,95,97,98,99,101,102,104,105,106,107,109,110,111,112,113,114,115,116,117,118,119,119,120,121,122,122,123,124,124,125,125,126,126,126,127,127,127,128,128,128,128,128,128
 };
 
  // initial viewer settings
@@ -87,14 +90,14 @@ void dmpDataReady() {
   mpuInterrupt = true;
 }
 
-// function to get precalculated sins (return values [-255;255])
-int sin255(int degree) {
+// function to get precalculated sins (return values [-128;128])
+int sin128(int degree) {
   degree = degree % 360;
   if (degree < 0) degree+=360;
-  if (degree < 90) return  g_sin255[degree];
-  if (degree < 180) return g_sin255[180-degree];
-  if (degree < 270) return - (int) g_sin255[degree-180];
-  return -(int) g_sin255[360-degree];
+  if (degree < 90) return  g_sin128[degree];
+  if (degree < 180) return g_sin128[180-degree];
+  if (degree < 270) return - (int) g_sin128[degree-180];
+  return -(int) g_sin128[360-degree];
 }
 
 // check if box in grid is filled with wall
@@ -128,8 +131,8 @@ void drawScene() {
   long distanceX,distanceY;
   long minDistance;
   long height;
-  int cachedCos255, cachedSin255; 
-  long cachedTan255;
+  int cachedCos128, cachedSin128; 
+  long cachedTan128;
   byte side;
   byte lastSide = SIDEUNKNOWN;
   bool finalCrossingFound;
@@ -152,25 +155,25 @@ void drawScene() {
     finalCrossingFound = false;
     crossingX = g_viewerX;
     crossingY = g_viewerY;
-    cachedSin255 = sin255(angle);
-    cachedCos255 = sin255(90-angle);
-    if (cachedCos255 != 0) cachedTan255 = ((((long)cachedSin255)<<8)/cachedCos255); else cachedTan255 = HUGEBIGNUMBER; // tan(a) = sin(a)/cos(a)
+    cachedSin128 = sin128(angle);
+    cachedCos128 = sin128(90-angle);
+    if (cachedCos128 != 0) cachedTan128 = ((((long)cachedSin128)<<7)/cachedCos128); else cachedTan128 = HUGEBIGNUMBER; // tan(a) = sin(a)/cos(a)
     distanceX = HUGEBIGNUMBER;
     distanceY = HUGEBIGNUMBER;
 
     do { // left or right (crossing vertical wall faces)
       if ((crossingX == g_viewerX) && (crossingY == g_viewerY)) { // first step
-        if (cachedCos255 > 0){ // right
+        if (cachedCos128 > 0){ // right
           crossingX=(g_viewerX/GRIDSIZE)*GRIDSIZE+GRIDSIZE; // grid on right
-          crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan255)>>8) + 1;
+          crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan128)>>7) + 1;
           // delta for the next steps
           deltaX = GRIDSIZE;
-          deltaY = (deltaX*cachedTan255)>>8;
-        } else if (cachedCos255 < 0){ // left
+          deltaY = (deltaX*cachedTan128)>>7;
+        } else if (cachedCos128 < 0){ // left
           crossingX=(g_viewerX/GRIDSIZE)*GRIDSIZE-1; // grid on left
-          crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan255)>>8);
+          crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan128)>>7);
           deltaX = -GRIDSIZE;
-          deltaY = (deltaX*cachedTan255)>>8;
+          deltaY = (deltaX*cachedTan128)>>7;
         } else {
           // too close to up or down
           crossingX=g_viewerX; 
@@ -179,7 +182,7 @@ void drawScene() {
         }
       } else { // following steps       
         if (isInMap(crossingX,crossingY) && isBoxFilled(crossingX,crossingY)) { // Wall found
-            distanceX=(cachedCos255*(crossingX-g_viewerX)+cachedSin255*(crossingY-g_viewerY))>>8; // calculate distance between points by using transformation of Pythagorean trigonometric identity (faster then sqrt(dx^2+dy^2)).
+            distanceX=(cachedCos128*(crossingX-g_viewerX)+cachedSin128*(crossingY-g_viewerY))>>7; // calculate distance between points by using transformation of Pythagorean trigonometric identity (faster then sqrt(dx^2+dy^2)).
             finalCrossingFound = true;
         } else {
           crossingX+=deltaX;
@@ -197,21 +200,21 @@ void drawScene() {
     crossingY = g_viewerY;
     finalCrossingFound = false;
 
-    if (cachedTan255 == 0) { cachedTan255 = 1; }; // Prevent DIV0
+    if (cachedTan128 == 0) { cachedTan128 = 1; }; // Prevent DIV0
     
     do { // up or down (crossing horizontal wall faces)
       if ((crossingX == g_viewerX) && (crossingY == g_viewerY)) { // first step
-        if (cachedSin255 < 0){ // up
+        if (cachedSin128 < 0){ // up
           crossingY=(g_viewerY/GRIDSIZE)*GRIDSIZE-1; // upper grid
-          crossingX=g_viewerX - ((g_viewerY - crossingY)<<8)/cachedTan255;
+          crossingX=g_viewerX - ((g_viewerY - crossingY)<<7)/cachedTan128;
           // delta for the next steps
           deltaY = -GRIDSIZE;
-          deltaX = (deltaY<<8)/cachedTan255;
-        } else if (cachedSin255 > 0){ // down
+          deltaX = (deltaY<<7)/cachedTan128;
+        } else if (cachedSin128 > 0){ // down
           crossingY=(g_viewerY/GRIDSIZE)*GRIDSIZE+GRIDSIZE;
-          crossingX=g_viewerX - ((g_viewerY - crossingY)<<8)/cachedTan255;
+          crossingX=g_viewerX - ((g_viewerY - crossingY)<<7)/cachedTan128;
           deltaY = GRIDSIZE;
-          deltaX = (deltaY<<8)/cachedTan255;
+          deltaX = (deltaY<<7)/cachedTan128;
         } else {
           // too close to left or right
           crossingX=g_viewerX; 
@@ -220,7 +223,7 @@ void drawScene() {
         }
        } else { // following steps       
         if (isInMap(crossingX,crossingY) && isBoxFilled(crossingX,crossingY)) { // Wall found
-          distanceY=(cachedCos255*(crossingX-g_viewerX)+cachedSin255*(crossingY-g_viewerY))>>8; // calculate distance between points by using transformation of Pythagorean trigonometric identity (faster then sqrt(dx^2+dy^2)).
+          distanceY=(cachedCos128*(crossingX-g_viewerX)+cachedSin128*(crossingY-g_viewerY))>>7; // calculate distance between points by using transformation of Pythagorean trigonometric identity (faster then sqrt(dx^2+dy^2)).
           finalCrossingFound = true;
         } else {
           crossingX+=deltaX;
@@ -247,7 +250,7 @@ void drawScene() {
         side = lastSide;
       }
       
-      minDistance= ((long)minDistance* (int) sin255(90-(g_viewerAngle-angle))) >> 8; //fisheye reduce
+      minDistance= ((long)minDistance* (int) sin128(90-(g_viewerAngle-angle))) >> 7; //fisheye reduce
       
       height = (long) STRIPEHEIGHTSCALER*VIEWPORT_HEIGHT*STRIPEHEIGHT/minDistance; // Current stripheight
 
@@ -425,8 +428,8 @@ void loop(void) {
   if (pitch > 10) direction = -1;
   if (pitch < -10) direction = 1;
   if (pitch != 0) {
-    newX = g_viewerX + ((sin255(90-g_viewerAngle) * direction) >> 2);
-    newY = g_viewerY + ((sin255(g_viewerAngle) * direction) >> 2);
+    newX = g_viewerX + ((sin128(90-g_viewerAngle) * direction) >> 1); // cos(a) = sin(90-a)
+    newY = g_viewerY + ((sin128(g_viewerAngle) * direction) >> 1);
     if (isInMap(newX,newY) && !isBoxFilled(newX,newY)) {
       g_viewerX = newX;
       g_viewerY = newY;
