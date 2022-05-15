@@ -1,6 +1,8 @@
 /*
  * Project: GyroRaycaster
- * Description: Raycaster where viewer can be moved and rotated by gyro sensor (Arduino Uno/Nano with gyro sensor MPU6050 and SSD1306 OLED 128x64 pixel display).
+ * Description: Gamelike Raycaster where viewer can be moved and rotated by gyro sensor 
+ *   When the viewer has reached the exit to the outer world the games ends
+ * Hardward: Arduino Uno/Nano with gyro sensor MPU6050 and SSD1306 OLED 128x64 pixel display
  * License: MIT License
  * Copyright (c) 2022 codingABI
  * 
@@ -8,10 +10,11 @@
  * 
  * History:
  * 14.05.2022, Initial version
+ * 15.05.2022, Display elapsed time at finish, fix rare glitches when angle close to 90/270 or 0/180 degrees, change precalculated sins from values [0;64] to [0;255] to more precise
  */
  
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h> / dont forget to uncomment #define SSD1306_NO_SPLASH in Adafruit_SSD1306.h to free program storage
+#include <Adafruit_SSD1306.h> // dont forget to uncomment #define SSD1306_NO_SPLASH in Adafruit_SSD1306.h to free program storage
 #include <I2Cdev.h>
 
 #include <MPU6050_6Axis_MotionApps20.h> // older, but smaller (~1k) binary than <MPU6050_6Axis_MotionApps612.h>
@@ -35,13 +38,15 @@ volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin h
 #define MAPHEIGHT 16  // height of map
 #define MAPHEIGHTPIX 12800
 #define STRIPEHEIGHT 8 // height of wall stripe
+#define STRIPEHEIGHTSCALER 90
 #define SIDEUNKNOWN 0
 #define SIDELEFTRIGHT 1
 #define SIDEUPDOWN 2  
 #define HUGEBIGNUMBER 1000000
 #define GRIDSIZE 800 // dimension of a wallside 
-#define FINISHGRIDX 7
-#define FINISHGRIDY 14
+#define EXITGRIDX 7
+#define EXITGRIDY 14
+
 #define STARTX 1200
 #define STARTY 2000
 #define STARTANGLE 0 
@@ -57,38 +62,39 @@ const PROGMEM byte g_map[]= {
  0b10000001,
  0b11111011,  
  0b10001011,
- 0b00101001,
- 0b10101011,
+ 0b00001001,
+ 0b11101011,
  0b10100001,
- 0b10000001,
+ 0b10100001,
  0b10000111,
  0b10000000,
  0b11111111,
 };
 
-// precalculated sin to improve performance 
-signed char g_sin64[91] {
-  0,1,2,3,4,6,7,8,9,10,11,12,13,14,15,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,39,40,41,42,43,44,44,45,46,47,48,48,49,50,50,51,52,52,53,54,54,55,55,56,57,57,58,58,58,59,59,60,60,61,61,61,62,62,62,62,63,63,63,63,63,64,64,64,64,64,64,64,64
+// precalculated sin to improve performance (degree 0-90 with values [0;255])
+byte g_sin255[91] {
+  0,4,9,13,18,22,27,31,35,40,44,49,53,57,62,66,70,75,79,83,87,91,96,100,104,108,112,116,120,124,128,131,135,139,143,146,150,153,157,160,164,167,171,174,177,180,183,186,190,192,195,198,201,204,206,209,211,214,216,219,221,223,225,227,229,231,233,235,236,238,240,241,243,244,245,246,247,248,249,250,251,252,253,253,254,254,254,255,255,255,255
 };
 
  // initial viewer settings
 int g_viewerX = STARTX;
 int g_viewerY = STARTY;
 int g_viewerAngle = STARTANGLE;
+unsigned long g_startMS;
 
 // Interrupthandler for mpu
 void dmpDataReady() {
   mpuInterrupt = true;
 }
 
-// function to get precalculated sins
-signed char sin64(int degree) {
+// function to get precalculated sins (return values [-255;255])
+int sin255(int degree) {
   degree = degree % 360;
   if (degree < 0) degree+=360;
-  if (degree < 90) return g_sin64[degree];
-  if (degree < 180) return g_sin64[180-degree];
-  if (degree < 270) return - g_sin64[degree-180];
-  return -g_sin64[360-degree];
+  if (degree < 90) return  g_sin255[degree];
+  if (degree < 180) return g_sin255[180-degree];
+  if (degree < 270) return - (int) g_sin255[degree-180];
+  return -(int) g_sin255[360-degree];
 }
 
 // check if box in grid is filled with wall
@@ -97,7 +103,7 @@ bool isBoxFilled(long x, long y) {
   if ((x<0) || (x>MAPWIDTH*GRIDSIZE-1)) return false; // out of map
   if ((y<0) || (y>MAPHEIGHT*GRIDSIZE-1)) return false; // out of map
   
-  return (((pgm_read_byte(&(g_map[y/GRIDSIZE]))>>(MAPWIDTH-x/GRIDSIZE-1)) & 1));
+  return ((pgm_read_byte(&(g_map[y/GRIDSIZE]))>>(MAPWIDTH-x/GRIDSIZE-1)) & 1);
 }
 
 // check if position is within map
@@ -122,8 +128,8 @@ void drawScene() {
   long distanceX,distanceY;
   long minDistance;
   long height;
-  signed char cachedCos64, cachedSin64; 
-  long cachedTan;
+  int cachedCos255, cachedSin255; 
+  long cachedTan255;
   byte side;
   byte lastSide = SIDEUNKNOWN;
   bool finalCrossingFound;
@@ -146,34 +152,34 @@ void drawScene() {
     finalCrossingFound = false;
     crossingX = g_viewerX;
     crossingY = g_viewerY;
-    cachedSin64 = sin64(angle);
-    cachedCos64 = sin64(90-angle);
-    if (cachedCos64 != 0) cachedTan = ((((long)cachedSin64)<<6)/cachedCos64); else cachedTan = HUGEBIGNUMBER; // tan(a) = sin(a)/cos(a)
+    cachedSin255 = sin255(angle);
+    cachedCos255 = sin255(90-angle);
+    if (cachedCos255 != 0) cachedTan255 = ((((long)cachedSin255)<<8)/cachedCos255); else cachedTan255 = HUGEBIGNUMBER; // tan(a) = sin(a)/cos(a)
     distanceX = HUGEBIGNUMBER;
     distanceY = HUGEBIGNUMBER;
 
-    do { // left or right (crossing walls vertically)
+    do { // left or right (crossing vertical wall faces)
       if ((crossingX == g_viewerX) && (crossingY == g_viewerY)) { // first step
-        if (cachedCos64 > 1){ // right
+        if (cachedCos255 > 0){ // right
           crossingX=(g_viewerX/GRIDSIZE)*GRIDSIZE+GRIDSIZE; // grid on right
-          crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan)>>6) + 1;
+          crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan255)>>8) + 1;
           // delta for the next steps
           deltaX = GRIDSIZE;
-          deltaY = (deltaX*cachedTan)>>6;
-        } else if (cachedCos64 < -1){ // left
+          deltaY = (deltaX*cachedTan255)>>8;
+        } else if (cachedCos255 < 0){ // left
           crossingX=(g_viewerX/GRIDSIZE)*GRIDSIZE-1; // grid on left
-          crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan)>>6);
+          crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan255)>>8);
           deltaX = -GRIDSIZE;
-          deltaY = (deltaX*cachedTan)>>6;
+          deltaY = (deltaX*cachedTan255)>>8;
         } else {
           // too close to up or down
           crossingX=g_viewerX; 
           crossingY=g_viewerY; 
           finalCrossingFound = true;
         }
-       } else { // following steps       
+      } else { // following steps       
         if (isInMap(crossingX,crossingY) && isBoxFilled(crossingX,crossingY)) { // Wall found
-            distanceX=(cachedCos64*(crossingX-g_viewerX)+cachedSin64*(crossingY-g_viewerY))>>6; // calculate distance between points by using transformation of Pythagorean trigonometric identity (faster then sqrt(dx^2+dy^2)).
+            distanceX=(cachedCos255*(crossingX-g_viewerX)+cachedSin255*(crossingY-g_viewerY))>>8; // calculate distance between points by using transformation of Pythagorean trigonometric identity (faster then sqrt(dx^2+dy^2)).
             finalCrossingFound = true;
         } else {
           crossingX+=deltaX;
@@ -182,7 +188,7 @@ void drawScene() {
             finalCrossingFound = true; 
           } 
         }
-      }      
+      }
     } while (!finalCrossingFound);
 
     finalCrossingX = crossingX;
@@ -191,21 +197,21 @@ void drawScene() {
     crossingY = g_viewerY;
     finalCrossingFound = false;
 
-    if (cachedTan == 0) { cachedTan = 1; }; // Prevent DIV0
+    if (cachedTan255 == 0) { cachedTan255 = 1; }; // Prevent DIV0
     
-    do { // up or down (crossing wall horizontally
+    do { // up or down (crossing horizontal wall faces)
       if ((crossingX == g_viewerX) && (crossingY == g_viewerY)) { // first step
-        if (cachedSin64 < -1){ // up
+        if (cachedSin255 < 0){ // up
           crossingY=(g_viewerY/GRIDSIZE)*GRIDSIZE-1; // upper grid
-          crossingX=g_viewerX - ((g_viewerY - crossingY)<<6)/cachedTan;
+          crossingX=g_viewerX - ((g_viewerY - crossingY)<<8)/cachedTan255;
           // delta for the next steps
           deltaY = -GRIDSIZE;
-          deltaX = (deltaY<<6)/cachedTan;
-        } else if (cachedSin64 > 1){ // down
+          deltaX = (deltaY<<8)/cachedTan255;
+        } else if (cachedSin255 > 0){ // down
           crossingY=(g_viewerY/GRIDSIZE)*GRIDSIZE+GRIDSIZE;
-          crossingX=g_viewerX - ((g_viewerY - crossingY)<<6)/cachedTan;
+          crossingX=g_viewerX - ((g_viewerY - crossingY)<<8)/cachedTan255;
           deltaY = GRIDSIZE;
-          deltaX = (deltaY<<6)/cachedTan;
+          deltaX = (deltaY<<8)/cachedTan255;
         } else {
           // too close to left or right
           crossingX=g_viewerX; 
@@ -214,7 +220,7 @@ void drawScene() {
         }
        } else { // following steps       
         if (isInMap(crossingX,crossingY) && isBoxFilled(crossingX,crossingY)) { // Wall found
-          distanceY=(cachedCos64*(crossingX-g_viewerX)+cachedSin64*(crossingY-g_viewerY))>>6; // calculate distance between points by using transformation of Pythagorean trigonometric identity (faster then sqrt(dx^2+dy^2)).
+          distanceY=(cachedCos255*(crossingX-g_viewerX)+cachedSin255*(crossingY-g_viewerY))>>8; // calculate distance between points by using transformation of Pythagorean trigonometric identity (faster then sqrt(dx^2+dy^2)).
           finalCrossingFound = true;
         } else {
           crossingX+=deltaX;
@@ -223,16 +229,16 @@ void drawScene() {
             finalCrossingFound = true; 
           } 
         }
-      }  
+      }
     } while (!finalCrossingFound);
 
     if ((distanceX != HUGEBIGNUMBER) || (distanceY != HUGEBIGNUMBER)) { // crossing in map found
-      if( distanceY < distanceX -1){ 
+      if( distanceY < distanceX -10){ 
         finalCrossingX=crossingX; 
         finalCrossingY=crossingY; 
         side = SIDEUPDOWN;
         minDistance = distanceY;
-      } else if (distanceX < distanceY -1) { 
+      } else if (distanceX < distanceY -10) { 
         minDistance = distanceX;
         side = SIDELEFTRIGHT;
       } else { 
@@ -240,10 +246,10 @@ void drawScene() {
         minDistance = distanceX;
         side = lastSide;
       }
-
-      minDistance= ((long)minDistance* (signed char) sin64(90-(g_viewerAngle-angle))) >> 6; //fisheye reduce
       
-      height = (long) 90*VIEWPORT_HEIGHT*STRIPEHEIGHT/minDistance; // Current stripheight
+      minDistance= ((long)minDistance* (int) sin255(90-(g_viewerAngle-angle))) >> 8; //fisheye reduce
+      
+      height = (long) STRIPEHEIGHTSCALER*VIEWPORT_HEIGHT*STRIPEHEIGHT/minDistance; // Current stripheight
 
       // texture pixel height is proportional to max/real wall stripe height
       textureDeltaY = (float)STRIPEHEIGHT/height;
@@ -261,7 +267,7 @@ void drawScene() {
         textureX =((finalCrossingY)%GRIDSIZE)/(GRIDSIZE/STRIPEHEIGHT);
         if(angle<90 || angle>270) { textureX=STRIPEHEIGHT-1-textureX; };
       } 
-      if (side == SIDEUPDOWN) { // if vertical wall face => calc texture column from crossing x value MOD wall heigt and fix column direction dependend on up/down
+      if (side == SIDEUPDOWN) { // if vertical wall face => calc texture column from crossing x value MOD wall height and fix column direction dependend on up/down
         textureX=((finalCrossingX)%GRIDSIZE)/(GRIDSIZE/STRIPEHEIGHT);
         if(angle>180) { textureX=STRIPEHEIGHT-1-textureX;}
       }
@@ -284,8 +290,8 @@ void drawScene() {
         textureY += textureDeltaY; // Next texture line
       }      
       lastSide = side; // remember side for next stripes where side can not be determined (distanceX == distanceY)
-    }
-  }
+    } 
+  }  
 }
 
 // blink internal led
@@ -322,7 +328,7 @@ void setup(void) {
   devStatus = mpu.dmpInitialize();
 
    // OLED init
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Default Address is 0x3D for 128x64, but my oled uses 0x3C 
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Default Address is 0x3D for 128x64, but my OLED uses 0x3C 
     // SSD1306 allocation failed
     blink(1000);
     blink(1000);
@@ -332,9 +338,11 @@ void setup(void) {
 
   // Font settings
   display.setTextColor(SSD1306_WHITE);
-  display.setTextSize(1);
-  display.print("Init gyro...");
+  display.setTextSize(2);
+  display.println(F("Find the"));
+  display.println(F("exit..."));
   display.display();
+  display.setTextSize(1);
 
   // Calibration based on IMU_ZERO
   mpu.setXGyroOffset(1907);
@@ -376,6 +384,7 @@ void setup(void) {
     while (true);
   }
 
+  g_startMS = millis();
 }
 
 void loop(void) {
@@ -416,22 +425,28 @@ void loop(void) {
   if (pitch > 10) direction = -1;
   if (pitch < -10) direction = 1;
   if (pitch != 0) {
-    newX = g_viewerX + sin64(90-g_viewerAngle) * direction;
-    newY = g_viewerY + sin64(g_viewerAngle) * direction;
+    newX = g_viewerX + ((sin255(90-g_viewerAngle) * direction) >> 2);
+    newY = g_viewerY + ((sin255(g_viewerAngle) * direction) >> 2);
     if (isInMap(newX,newY) && !isBoxFilled(newX,newY)) {
       g_viewerX = newX;
       g_viewerY = newY;
     }
-    if ((g_viewerX/GRIDSIZE == FINISHGRIDX) && (g_viewerY/GRIDSIZE == FINISHGRIDY)) { // Finish reached
+    if ((g_viewerX/GRIDSIZE == EXITGRIDX) && (g_viewerY/GRIDSIZE == EXITGRIDY)) { // Exit reached
       display.clearDisplay();
       display.setTextSize(2);
-      display.setCursor(50,24);
-      display.print("Fin");
+      display.setCursor(50,20);
+      display.print(F("Fin"));
+      display.setTextSize(1);
+      display.setCursor(0,56);
+      display.print(F("Solved in "));
+      display.print((millis()-g_startMS)/1000);
+      display.print(F(" seconds"));
       display.display();
       delay(10000);
-      display.setTextSize(1);
+      // Jump to start
       g_viewerX = STARTX;
       g_viewerY = STARTY;
+      g_startMS = millis();
     }
   }
 
