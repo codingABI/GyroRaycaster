@@ -150,7 +150,7 @@ void drawScene() {
 
   // for every second pixel from the screen width
   for (byte viewPortX=0;viewPortX<SCREEN_WIDTH;viewPortX+=2) {
-    angle = (angle + 1)%360;
+    angle = (angle + 1)%360; // increase raycasted angle
     
     side = SIDEUNKNOWN;
     finalCrossingFound = false;
