@@ -148,7 +148,7 @@ void drawScene() {
   // Start angle
   if (g_viewerAngle > 32) angle = g_viewerAngle - 32; else angle = 328 + g_viewerAngle;
 
-  // for complete screenwidth
+  // for every second pixel from the screen width
   for (byte viewPortX=0;viewPortX<SCREEN_WIDTH;viewPortX+=2) {
     angle = (angle + 1)%360;
     
