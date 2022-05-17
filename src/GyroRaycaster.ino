@@ -40,7 +40,6 @@ volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin h
 
 #define MAPWIDTH 8  // width of map
 #define MAPHEIGHT 16  // height of map
-#define MAPHEIGHTPIX 12800
 #define STRIPEHEIGHT 8 // height of wall stripe
 #define STRIPEHEIGHTSCALER 90
 #define SIDEUNKNOWN 0
@@ -48,9 +47,10 @@ volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin h
 #define SIDEUPDOWN 2  
 #define HUGEBIGNUMBER 1000000
 #define GRIDSIZE 800 // dimension of a wallside 
+ // final exit position
 #define EXITGRIDX 7
 #define EXITGRIDY 14
-
+// Start position and angle
 #define STARTX 1200
 #define STARTY 2000
 #define STARTANGLE 0 
