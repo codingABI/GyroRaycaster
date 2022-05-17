@@ -11,9 +11,10 @@
  * History:
  * 14.05.2022, Initial version
  * 15.05.2022, Display elapsed time at finish
- * 15.05.2022, fix rare glitches when angle close to 90/270 or 0/180 degrees
- * 15.05.2022, change precalculated sins from values [0;64] to [0;128] to more precise
+ * 15.05.2022, Fix rare glitches when angle close to 90/270 or 0/180 degrees
+ * 15.05.2022, Change precalculated sins from values [0;64] to [0;128] to more precise
  * 15.05.2022, Change inital text from "Init gyro..." to "Find the exit..."
+ * 16.05.2022, Fix wrong +1 when calculating crossingY
  */
  
 #include <Adafruit_GFX.h>
@@ -165,7 +166,7 @@ void drawScene() {
       if ((crossingX == g_viewerX) && (crossingY == g_viewerY)) { // first step
         if (cachedCos128 > 0){ // right
           crossingX=(g_viewerX/GRIDSIZE)*GRIDSIZE+GRIDSIZE; // grid on right
-          crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan128)>>7) + 1;
+          crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan128)>>7);
           // delta for the next steps
           deltaX = GRIDSIZE;
           deltaY = (deltaX*cachedTan128)>>7;
@@ -182,8 +183,8 @@ void drawScene() {
         }
       } else { // following steps       
         if (isInMap(crossingX,crossingY) && isBoxFilled(crossingX,crossingY)) { // Wall found
-            distanceX=(cachedCos128*(crossingX-g_viewerX)+cachedSin128*(crossingY-g_viewerY))>>7; // calculate distance between points by using transformation of Pythagorean trigonometric identity (faster then sqrt(dx^2+dy^2)).
-            finalCrossingFound = true;
+          distanceX=(cachedCos128*(crossingX-g_viewerX)+cachedSin128*(crossingY-g_viewerY))>>7; // calculate distance between points by using transformation of Pythagorean trigonometric identity (faster then sqrt(dx^2+dy^2)).
+          finalCrossingFound = true;
         } else {
           crossingX+=deltaX;
           crossingY+=deltaY;
@@ -251,7 +252,7 @@ void drawScene() {
       }
       
       minDistance= ((long)minDistance* (int) sin128(90-(g_viewerAngle-angle))) >> 7; //fisheye reduce
-      
+
       height = (long) STRIPEHEIGHTSCALER*VIEWPORT_HEIGHT*STRIPEHEIGHT/minDistance; // Current stripheight
 
       // texture pixel height is proportional to max/real wall stripe height
@@ -272,6 +273,7 @@ void drawScene() {
       } 
       if (side == SIDEUPDOWN) { // if vertical wall face => calc texture column from crossing x value MOD wall height and fix column direction dependend on up/down
         textureX=((finalCrossingX)%GRIDSIZE)/(GRIDSIZE/STRIPEHEIGHT);
+        textureX=((finalCrossingX)%GRIDSIZE)/100;
         if(angle>180) { textureX=STRIPEHEIGHT-1-textureX;}
       }
 
