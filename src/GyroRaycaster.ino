@@ -273,7 +273,6 @@ void drawScene() {
       } 
       if (side == SIDEUPDOWN) { // if vertical wall face => calc texture column from crossing x value MOD wall height and fix column direction dependend on up/down
         textureX=((finalCrossingX)%GRIDSIZE)/(GRIDSIZE/STRIPEHEIGHT);
-        textureX=((finalCrossingX)%GRIDSIZE)/100;
         if(angle>180) { textureX=STRIPEHEIGHT-1-textureX;}
       }
 
