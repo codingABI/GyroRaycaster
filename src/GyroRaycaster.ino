@@ -1,8 +1,8 @@
 /*
  * Project: GyroRaycaster
- * Description: Gamelike raycaster where viewer can be moved and rotated by gyro sensor 
+ * Description: Gamelike raycaster where viewer can be moved and rotated by gyroscope sensor 
  *   When the viewer has reached the exit to the outer world the games ends
- * Hardward: Arduino Uno/Nano with gyro sensor MPU6050 and SSD1306 OLED 128x64 pixel display
+ * Hardward: Arduino Uno/Nano with gyroscope sensor MPU6050 and SSD1306 OLED 128x64 pixel display
  * License: MIT License
  * Copyright (c) 2022 codingABI
  * 
@@ -15,6 +15,7 @@
  * 15.05.2022, Change precalculated sins from values [0;64] to [0;128] to more precise
  * 15.05.2022, Change inital text from "Init gyro..." to "Find the exit..."
  * 16.05.2022, Fix wrong +1 when calculating crossingY
+ * 21.05.2022, Remove unneeded mpu.PrintActiveOffsets();
  */
  
 #include <Adafruit_GFX.h>
@@ -361,7 +362,6 @@ void setup(void) {
     // Calibration Time: generate offsets and calibrate our MPU6050
     mpu.CalibrateAccel(6);
     mpu.CalibrateGyro(6);
-    mpu.PrintActiveOffsets();
     // turn on the DMP, now that it's ready
     mpu.setDMPEnabled(true);
 
