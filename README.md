@@ -3,6 +3,8 @@ Gamelike raycaster where viewer can be moved and rotated by gyroscope sensor. Wh
 
 ![screenshot](/assets/images/Screenshot.png) 
 
+Video https://youtu.be/0g54CI1bC_A
+
 ## Hardware
 Arduino Uno/Nano with gyroscope sensor MPU6050 and SSD1306 OLED 128x64 pixel display
 
@@ -13,5 +15,3 @@ Arduino Uno/Nano with gyroscope sensor MPU6050 and SSD1306 OLED 128x64 pixel dis
 Running on breadboard was not very stable for me over time (occassionally i2c-bus freezes). The same circuit soldered on board ran stable.
 
 ![schema](/assets/images/Schema.svg) 
-
-Video https://youtu.be/0g54CI1bC_A
