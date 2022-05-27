@@ -16,6 +16,10 @@
  * 15.05.2022, Change inital text from "Init gyro..." to "Find the exit..."
  * 16.05.2022, Fix wrong +1 when calculating crossingY
  * 21.05.2022, Remove unneeded mpu.PrintActiveOffsets();
+ * 24.05.2022, Improve 1-2 fps by using 
+ *             - gridsize 512
+ *             - use bit shift for multis or divs where possible
+ *             - sin128 with 0-255 "degrees"
  */
  
 #include <Adafruit_GFX.h>
@@ -40,20 +44,24 @@ bool dmpReady = false;  // set true if DMP init was successful
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 
 #define MAPWIDTH 8  // width of map
+#define MAPWIDTHPIX 4096 // MAPWIDTH * GRIDSIZE
 #define MAPHEIGHT 16  // height of map
+#define MAPHEIGHTPIX 8192 // MAPHEIGHT * GRIDSIZE
 #define STRIPEHEIGHT 8 // height of wall stripe
-#define STRIPEHEIGHTSCALER 90
+#define STRIPEHEIGHTSHIFT 3
+#define STRIPEHEIGHTSCALERSHIFT 6
 #define SIDEUNKNOWN 0
 #define SIDELEFTRIGHT 1
 #define SIDEUPDOWN 2  
 #define HUGEBIGNUMBER 1000000
-#define GRIDSIZE 800 // dimension of a wallside 
+#define GRIDSIZE 512 // dimension of a wallside 
+#define GRIDSIZESHIFT 9
  // final exit position
 #define EXITGRIDX 7
 #define EXITGRIDY 14
 // Start position and angle
-#define STARTX 1200
-#define STARTY 2000
+#define STARTX 768
+#define STARTY 1280
 #define STARTANGLE 0 
 
 // raycaster map
@@ -76,15 +84,15 @@ const PROGMEM byte g_map[]= {
  0b11111111,
 };
 
-// precalculated sin to improve performance (degree 0-90 with values [0;128])
-byte g_sin128[91] {
-  0,2,4,7,9,11,13,16,18,20,22,24,27,29,31,33,35,37,40,42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,73,75,77,79,81,82,84,86,87,89,91,92,94,95,97,98,99,101,102,104,105,106,107,109,110,111,112,113,114,115,116,117,118,119,119,120,121,122,122,123,124,124,125,125,126,126,126,127,127,127,128,128,128,128,128,128
+// precalculated sin to improve performance (degree255 0-64 with values [0;128])
+byte g_sin128[65] {
+  0,3,6,9,13,16,19,22,25,28,31,34,37,40,43,46,49,52,55,58,60,63,66,68,71,74,76,79,81,84,86,88,91,93,95,97,99,101,103,105,106,108,110,111,113,114,116,117,118,119,121,122,122,123,124,125,126,126,127,127,127,128,128,128,128
 };
 
  // initial viewer settings
 int g_viewerX = STARTX;
 int g_viewerY = STARTY;
-int g_viewerAngle = STARTANGLE;
+byte g_viewerAngle = STARTANGLE;
 unsigned long g_startMS;
 
 // Interrupthandler for mpu
@@ -92,28 +100,24 @@ void dmpDataReady() {
   mpuInterrupt = true;
 }
 
-// function to get precalculated sins (return values [-128;128])
-int sin128(int degree) {
-  degree = degree % 360;
-  if (degree < 0) degree+=360;
-  if (degree < 90) return  g_sin128[degree];
-  if (degree < 180) return g_sin128[180-degree];
-  if (degree < 270) return - (int) g_sin128[degree-180];
-  return -(int) g_sin128[360-degree];
+// function to get precalculated sins (return values [-128;128] and degree255 must be [0;255])
+int sin128(byte degree255) {
+  if (degree255 < 64) return  g_sin128[degree255];
+  if (degree255 < 128) return g_sin128[128-degree255];
+  if (degree255 < 192) return - (int) g_sin128[degree255-128];
+  return -(int) g_sin128[255-degree255];
 }
 
 // check if box in grid is filled with wall
 bool isBoxFilled(long x, long y) {
-  
-  if ((x<0) || (x>MAPWIDTH*GRIDSIZE-1)) return false; // out of map
-  if ((y<0) || (y>MAPHEIGHT*GRIDSIZE-1)) return false; // out of map
-  
-  return ((pgm_read_byte(&(g_map[y/GRIDSIZE]))>>(MAPWIDTH-x/GRIDSIZE-1)) & 1);
+  return ((pgm_read_byte(&(g_map[y>>GRIDSIZESHIFT]))>>(MAPWIDTH-(x>>GRIDSIZESHIFT)-1)) & 1);
 }
 
 // check if position is within map
 bool isInMap(long x, long y) {
-  return !((x < 0) || (x > MAPWIDTH*GRIDSIZE-1) || (y < 0) || (y > MAPHEIGHT*GRIDSIZE-1));
+  if ((x<0) || (x>MAPWIDTHPIX-1)) return false; // out of map
+  if ((y<0) || (y>MAPHEIGHTPIX-1)) return false; // out of map
+  return true;
 }
 
 // dynamic texture (+ vertical, - horizontal)
@@ -126,13 +130,14 @@ bool texture(byte x, byte y, byte side) {
 // Draw raycasted scene (inspired on raycast ideas from https://github.com/3DSage/OpenGL-Raycaster_v1 and https://github.com/3DSage/OpenGL-Raycaster_v2)
 void drawScene() {
   // in general we prevent floats to improve speed. Only floats for some textures variables
-  int angle;
+  byte angle;
   long finalCrossingX,finalCrossingY;
   long crossingX, crossingY;
   long deltaX, deltaY;
   long distanceX,distanceY;
   long minDistance;
   long height;
+  long halfHeight;
   int cachedCos128, cachedSin128; 
   long cachedTan128;
   byte side;
@@ -145,20 +150,21 @@ void drawScene() {
   int beginOfStripe;
   float textureY;
   byte textureX;
+  
 
   // Start angle
-  if (g_viewerAngle > 32) angle = g_viewerAngle - 32; else angle = 328 + g_viewerAngle;
+  angle = g_viewerAngle - 32;
 
   // for every second pixel from the screen width
   for (byte viewPortX=0;viewPortX<SCREEN_WIDTH;viewPortX+=2) {
-    angle = (angle + 1)%360; // increase raycasted angle
+    angle++; // increase raycasted angle
     
     side = SIDEUNKNOWN;
     finalCrossingFound = false;
     crossingX = g_viewerX;
     crossingY = g_viewerY;
     cachedSin128 = sin128(angle);
-    cachedCos128 = sin128(90-angle);
+    cachedCos128 = sin128(64-angle);
     if (cachedCos128 != 0) cachedTan128 = ((((long)cachedSin128)<<7)/cachedCos128); else cachedTan128 = HUGEBIGNUMBER; // tan(a) = sin(a)/cos(a)
     distanceX = HUGEBIGNUMBER;
     distanceY = HUGEBIGNUMBER;
@@ -166,13 +172,13 @@ void drawScene() {
     do { // left or right (crossing vertical wall faces)
       if ((crossingX == g_viewerX) && (crossingY == g_viewerY)) { // first step
         if (cachedCos128 > 0){ // right
-          crossingX=(g_viewerX/GRIDSIZE)*GRIDSIZE+GRIDSIZE; // grid on right
+          crossingX=((g_viewerX>>GRIDSIZESHIFT)<<GRIDSIZESHIFT)+GRIDSIZE; // grid on right
           crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan128)>>7);
           // delta for the next steps
           deltaX = GRIDSIZE;
           deltaY = (deltaX*cachedTan128)>>7;
         } else if (cachedCos128 < 0){ // left
-          crossingX=(g_viewerX/GRIDSIZE)*GRIDSIZE-1; // grid on left
+          crossingX=((g_viewerX>>GRIDSIZESHIFT)<<GRIDSIZESHIFT)-1; // grid on left
           crossingY=g_viewerY - (((g_viewerX - crossingX)*cachedTan128)>>7);
           deltaX = -GRIDSIZE;
           deltaY = (deltaX*cachedTan128)>>7;
@@ -207,13 +213,13 @@ void drawScene() {
     do { // up or down (crossing horizontal wall faces)
       if ((crossingX == g_viewerX) && (crossingY == g_viewerY)) { // first step
         if (cachedSin128 < 0){ // up
-          crossingY=(g_viewerY/GRIDSIZE)*GRIDSIZE-1; // upper grid
+          crossingY=((g_viewerY>>GRIDSIZESHIFT)<<GRIDSIZESHIFT)-1; // upper grid
           crossingX=g_viewerX - ((g_viewerY - crossingY)<<7)/cachedTan128;
           // delta for the next steps
           deltaY = -GRIDSIZE;
           deltaX = (deltaY<<7)/cachedTan128;
         } else if (cachedSin128 > 0){ // down
-          crossingY=(g_viewerY/GRIDSIZE)*GRIDSIZE+GRIDSIZE;
+          crossingY=((g_viewerY>>GRIDSIZESHIFT)<<GRIDSIZESHIFT)+GRIDSIZE;
           crossingX=g_viewerX - ((g_viewerY - crossingY)<<7)/cachedTan128;
           deltaY = GRIDSIZE;
           deltaX = (deltaY<<7)/cachedTan128;
@@ -252,9 +258,9 @@ void drawScene() {
         side = lastSide;
       }
       
-      minDistance= ((long)minDistance* (int) sin128(90-(g_viewerAngle-angle))) >> 7; //fisheye reduce
+      minDistance= ((long)minDistance* (int) sin128(64-(g_viewerAngle-angle))) >> 7; //fisheye reduce
 
-      height = (long) STRIPEHEIGHTSCALER*VIEWPORT_HEIGHT*STRIPEHEIGHT/minDistance; // Current stripheight
+      height = (long) ((VIEWPORT_HEIGHT<<STRIPEHEIGHTSHIFT)<<STRIPEHEIGHTSCALERSHIFT)/minDistance; // Current stripheight
 
       // texture pixel height is proportional to max/real wall stripe height
       textureDeltaY = (float)STRIPEHEIGHT/height;
@@ -269,27 +275,28 @@ void drawScene() {
       textureX; // column in texture
 
       if (side == SIDELEFTRIGHT) { // if horizontal wall face => calc texture column from crossing y value MOD wall width and fix column direction dependend on left/right
-        textureX =((finalCrossingY)%GRIDSIZE)/(GRIDSIZE/STRIPEHEIGHT);
-        if(angle<90 || angle>270) { textureX=STRIPEHEIGHT-1-textureX; };
+        textureX=(((finalCrossingY)&(GRIDSIZE-1))<<STRIPEHEIGHTSHIFT)>>GRIDSIZESHIFT;
+        if(angle<64 || angle>192) { textureX=STRIPEHEIGHT-1-textureX; };
       } 
       if (side == SIDEUPDOWN) { // if vertical wall face => calc texture column from crossing x value MOD wall height and fix column direction dependend on up/down
-        textureX=((finalCrossingX)%GRIDSIZE)/(GRIDSIZE/STRIPEHEIGHT);
-        if(angle>180) { textureX=STRIPEHEIGHT-1-textureX;}
+        textureX=(((finalCrossingX)&(GRIDSIZE-1))<<STRIPEHEIGHTSHIFT)>>GRIDSIZESHIFT;
+        if(angle>128) { textureX=STRIPEHEIGHT-1-textureX;}
       }
 
+      halfHeight = height>>1;
       for (byte k=0;k<height;k++) {
         toDraw = texture(textureX,textureY,side); // should pixel be drawn?
   
         if (toDraw) { // pixel to draw
           if (side == SIDEUPDOWN) { // simple dithering for up- and downsides
-            if ((k+(height/2)%2+viewPortX)%2) {
+            if ((k+halfHeight&1+viewPortX)&1) {
               display.drawPixel(viewPortX,k + beginOfStripe,SSD1306_WHITE);
             } else {
               display.drawPixel(viewPortX + 1,k + beginOfStripe,SSD1306_WHITE);            
             }
           } else { // Draw two pixel, because viewPortX has a stepsize of 2
-            display.drawPixel(viewPortX,k + beginOfStripe,SSD1306_WHITE);
-            display.drawPixel(viewPortX + 1,k + beginOfStripe,SSD1306_WHITE);
+            display.drawFastHLine(viewPortX,k + beginOfStripe,2,SSD1306_WHITE);
+        //    display.drawPixel(viewPortX + 1,k + beginOfStripe,SSD1306_WHITE);
           }
         }
         textureY += textureDeltaY; // Next texture line
@@ -403,7 +410,6 @@ void loop(void) {
   uint8_t fifoBuffer[64]; // FIFO storage buffer
   uint8_t rc;
   int newX, newY;
-  signed char direction = 0;
   
   // record start of frame
   startMS = millis();
@@ -417,25 +423,27 @@ void loop(void) {
       mpu.dmpGetQuaternion(&q, fifoBuffer);
       mpu.dmpGetGravity(&gravity, &q);
       mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-      pitch = -ypr[1] * 180/M_PI;
-      yaw = -ypr[0] * 180/M_PI;
+      pitch = ypr[1]*10;
+      yaw = 256 + 128*ypr[0]/M_PI;
     }
   }
-  
-  // rotate and move viewer
-  g_viewerAngle = (-yaw)%360;
-  if (g_viewerAngle<0) g_viewerAngle+=360;
 
-  if (pitch > 10) direction = -1;
-  if (pitch < -10) direction = 1;
+  // rotate and move viewer
+  g_viewerAngle = yaw; 
+
   if (pitch != 0) {
-    newX = g_viewerX + ((sin128(90-g_viewerAngle) * direction) >> 1); // cos(a) = sin(90-a)
-    newY = g_viewerY + ((sin128(g_viewerAngle) * direction) >> 1);
+    if (pitch < -1) {
+      newX = g_viewerX - (sin128(64-g_viewerAngle) >> 1); // cos(a) = sin(90-a)
+      newY = g_viewerY - (sin128(g_viewerAngle) >> 1);
+    } else if (pitch > 1) {
+      newX = g_viewerX + (sin128(64-g_viewerAngle) >> 1); // cos(a) = sin(90-a)
+      newY = g_viewerY + (sin128(g_viewerAngle) >> 1);
+    }
     if (isInMap(newX,newY) && !isBoxFilled(newX,newY)) {
       g_viewerX = newX;
       g_viewerY = newY;
     }
-    if ((g_viewerX/GRIDSIZE == EXITGRIDX) && (g_viewerY/GRIDSIZE == EXITGRIDY)) { // Exit reached
+    if ((g_viewerX>>GRIDSIZESHIFT == EXITGRIDX) && (g_viewerY>>GRIDSIZESHIFT == EXITGRIDY)) { // Exit reached
       display.clearDisplay();
       display.setTextSize(2);
       display.setCursor(50,20);
@@ -461,7 +469,7 @@ void loop(void) {
   drawScene();
 
   // draw viewer data
-  snprintf(strData,24,"X%5d Y%5d%4d%c%2df",g_viewerX,g_viewerY,g_viewerAngle,(char)247,fps);
+  snprintf(strData,24,"X%5d Y%5d%4d%3df",g_viewerX,g_viewerY,g_viewerAngle,fps);
   display.setCursor(0,57);
   display.print(strData);
 
