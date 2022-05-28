@@ -20,6 +20,7 @@
  *             - gridsize 512
  *             - use bit shift for multis or divs where possible
  *             - sin128 with 0-255 "degrees"
+ * 27.05.2022, Display 0-255 "degrees" on OLED as 0-359 degrees
  */
  
 #include <Adafruit_GFX.h>
@@ -469,7 +470,7 @@ void loop(void) {
   drawScene();
 
   // draw viewer data
-  snprintf(strData,24,"X%5d Y%5d%4d%3df",g_viewerX,g_viewerY,g_viewerAngle,fps);
+  snprintf(strData,24,"X%5d Y%5d%4ld%c%2df",g_viewerX,g_viewerY,(360L*g_viewerAngle)>>8,(char)247,fps);
   display.setCursor(0,57);
   display.print(strData);
 
