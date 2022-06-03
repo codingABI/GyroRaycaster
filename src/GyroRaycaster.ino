@@ -21,6 +21,8 @@
  *             - use bit shift for multis or divs where possible
  *             - sin128 with 0-255 "degrees"
  * 27.05.2022, Display 0-255 "degrees" on OLED as 0-359 degrees
+ * 03.06.2022, Improve symetry due odd height for stripes
+ * 03.06.2022, Release version v0.1.0
  */
  
 #include <Adafruit_GFX.h>
@@ -261,7 +263,8 @@ void drawScene() {
       
       minDistance= ((long)minDistance* (int) sin128(64-(g_viewerAngle-angle))) >> 7; //fisheye reduce
 
-      height = (long) ((VIEWPORT_HEIGHT<<STRIPEHEIGHTSHIFT)<<STRIPEHEIGHTSCALERSHIFT)/minDistance; // Current stripheight
+      height = (long) ((VIEWPORT_HEIGHT<<STRIPEHEIGHTSHIFT)<<STRIPEHEIGHTSCALERSHIFT)/minDistance; // Current stripe height
+      if (height & 1) height ++; // align to odd height
 
       // texture pixel height is proportional to max/real wall stripe height
       textureDeltaY = (float)STRIPEHEIGHT/height;
@@ -349,7 +352,8 @@ void setup(void) {
     while (true);
   }
 
-  // Font settings
+  // Intro text
+  display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(2);
   display.println(F("Find the"));
