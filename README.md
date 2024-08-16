@@ -21,11 +21,11 @@ Official: No
 
 The project was designed for a SSD1306 display.
 
-To get the project working on a SH1106 display as requested on https://www.youtube.com/watch?v=0g54CI1bC_A 
-there are some challenges has to resolved :  
+To get the project working on a SH1106 display (as requested on https://www.youtube.com/watch?v=0g54CI1bC_A)
+there are some challenges to be resolved :  
  1) The library Adafruit_SSD1306 (2.5.7) does not support the SH1106 display => Adafruit_SH110X is needed (Version 2.1.10 was testet)
  2) The library Adafruit_SH110X seems to have a higher memory footprint then the Adafruit_SSD1306 library => Project would compile, but does not run (=Black screen)
- 3) Removing of display strings in this special ![SH1106 version](/src/GyroRaycasterSH1106/GyroRaycasterSH1106.ino) got the project working on a SH1106 display
+ 3) Removing of display strings in this special [SH1106 version](/src/GyroRaycasterSH1106/GyroRaycasterSH1106.ino) got the project working on a SH1106 display
  => Use a SSD1306 display for this project or fix it yourself.
 
 ![screenshot](/assets/images/SH1106.png) 
