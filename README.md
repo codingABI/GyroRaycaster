@@ -1,5 +1,5 @@
 # GyroRaycaster
-Gamelike raycaster where viewer can be moved and rotated by gyroscope sensor. When the viewer has reached the exit to the outer world the games ends.
+Gamelike raycaster where viewer can be moved and rotated by gyroscope sensor. When the viewer has reached the exit to the outer world the game ends.
 
 ![screenshot](/assets/images/Screenshot.png) 
 
