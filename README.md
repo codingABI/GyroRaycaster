@@ -16,7 +16,7 @@ Running on breadboard was not very stable for me over time (occassionally i2c-bu
 
 ![schema](/assets/images/Schema.svg) 
 
-# Can I use a SH1106 display instead of of a SSD1306?
+# Can I use a SH1106 display instead of a SSD1306?
 Official: No
 
 The project was designed for a SSD1306 display.
