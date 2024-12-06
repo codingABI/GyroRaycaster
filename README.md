@@ -5,7 +5,11 @@ Gamelike raycaster where viewer can be moved and rotated by gyroscope sensor. Wh
 
 Video https://youtu.be/0g54CI1bC_A
 
+## License and copyright
+My code is licensed under the terms of the MIT License License [Copyright (c) 2022 codingABI](LICENSE).
+
 ## Hardware
+
 Arduino Uno/Nano with gyroscope sensor MPU6050 and SSD1306 OLED 128x64 pixel display
 
 ![photo](/assets/images/GyroRaycaster.jpg) 
@@ -14,9 +18,23 @@ Arduino Uno/Nano with gyroscope sensor MPU6050 and SSD1306 OLED 128x64 pixel dis
 
 Running on breadboard was not very stable for me over time (occassionally i2c-bus freezes). The same circuit soldered on board ran stable.
 
+# Appendix
+
+## Schematic
+
 ![schema](/assets/images/Schema.svg) 
 
-# Can I use a SH1106 display instead of a SSD1306?
+## Used development environment
+
+- Arduino IDE 2.3.4 or 1.8.19
+- Arduino AVR Boards Version 1.8.6
+- Adafruit GFX Library 1.11.11 
+- Adafruit SSD1306 2.5.13 (dont forget to uncomment #define SSD1306_NO_SPLASH in Adafruit_SSD1306.h to prevent the "Sketch too big" error)
+- I2Cdev (from https://github.com/jrowberg/i2cdevlib)
+
+### FAQ
+
+#### Can I use a SH1106 display instead of a SSD1306?
 Official: No
 
 The project was designed for a SSD1306 display.
