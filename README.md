@@ -6,7 +6,7 @@ Gamelike raycaster where viewer can be moved and rotated by gyroscope sensor. Wh
 Video https://youtu.be/0g54CI1bC_A
 
 ## License and copyright
-My code is licensed under the terms of the MIT License License [Copyright (c) 2022 codingABI](LICENSE).
+My code is licensed under the terms of the MIT License [Copyright (c) 2022 codingABI](LICENSE).
 
 ## Hardware
 
